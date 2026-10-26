@@ -344,9 +344,6 @@
     left.forEach(function (p, k) { k ? G.lineTo(p[0], p[1]) : G.moveTo(p[0], p[1]); });
     right.reverse().forEach(function (p) { G.lineTo(p[0], p[1]); });
     G.closePath(); G.fill();
-    // a thin highlight down the thread
-    G.fillStyle = "rgba(255,236,210,.35)";
-    G.fillRect(x - wMid * 0.25 - 0.5, y1, Math.max(0.8, wMid * 0.22), y2 - y1);
     G.fillStyle = css(DARK);
   }
 
@@ -403,7 +400,7 @@
         // the thin part of the strand is too fine for the blur filter: draw it crisp
         G.fillStyle = css(DARK);
         var wMid = Math.max(1.6, 2 * neck * 0.6);
-        thread(ax, ay + pr * 0.9 + len * 0.2, ay + len - rb * 0.4, Math.max(2, 2 * neck), wMid, wMid * 1.4, Math.sin(t * 2 + ax) * 0.6 * prog);
+        thread(ax, ay + pr * 0.9 + len * 0.2, ay + len - rb * 1.5, Math.max(2, 2 * neck), wMid, wMid * 1.4, Math.sin(t * 2 + ax) * 0.6 * prog);
       });
     });
 
@@ -420,7 +417,7 @@
       beads.push(cue.x, cue.y + len, rb);
       G.fillStyle = css(DARK);
       var wm = Math.max(1.4, 2 * neckC * 0.6);
-      thread(cue.x, cue.y + len * 0.28, cue.y + len - rb * 0.4, Math.max(2, 2 * neckC), wm, wm * 1.4, 0);
+      thread(cue.x, cue.y + len * 0.28, cue.y + len - rb * 1.5, Math.max(2, 2 * neckC), wm, wm * 1.4, 0);
     }
 
     // falling drops, each trailing a hair-thin thread
@@ -431,7 +428,7 @@
       beads.push(d.x, d.y, d.r);
       if (d.tail > 2) {
         G.fillStyle = css(DARK);
-        thread(d.x, d.y - d.r * 0.9 - d.tail, d.y - d.r * 0.9, 1, 1.8, 3.2, 0);
+        thread(d.x, d.y - d.r * 1.5 - d.tail, d.y - d.r * 1.5, 1, 1.8, 3.2, 0);
       }
     });
 
