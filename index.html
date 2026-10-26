@@ -95,7 +95,7 @@
 
   /* ---- colour ------------------------------------------------------------ */
 
-  var BG = [244, 239, 228], DARK = [40, 20, 11], WARMC = [76, 40, 22], HI = [112, 63, 38], GLOSS = [168, 112, 80], CREAM = [255, 238, 214];
+  var BG = [244, 239, 228], DARK = [32, 16, 9], WARMC = [76, 40, 22], HI = [126, 72, 44], GLOSS = [156, 102, 72], CORE = [228, 194, 162], RIM = [104, 58, 34], CREAM = [255, 238, 214];
   function lerpC(a, b, k) {
     k = k < 0 ? 0 : k > 1 ? 1 : k;
     return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
@@ -179,7 +179,7 @@
     tagTop = y0 + blockH + gap;
     hero.querySelector(".tagline").style.top = tagTop + "px";
     floorY = H - 18;
-    blurNode.setAttribute("stdDeviation", (r0 * 0.3).toFixed(2));
+    blurNode.setAttribute("stdDeviation", (r0 * 0.24).toFixed(2));
 
     letters = []; drops = []; puddles = [];
     lines.forEach(function (line, li) {
@@ -433,9 +433,19 @@
           A.fillStyle = p.band > 0.02 ? css(lerpC(L.hiC, CREAM, p.band * 0.7)) : L.hiCss;
           dot(A, p.sx - p.sr * 0.26, p.sy - p.sr * 0.34, p.sr * 0.58);
         });
+        // wet sheen along the upper edge: a wide soft band with a bright core
         s.forEach(function (p) {
-          A.fillStyle = css(lerpC(GLOSS, CREAM, p.band * 0.7 + 0.0));
-          dot(A, p.sx - p.sr * 0.4, p.sy - p.sr * 0.5, p.sr * 0.26 * (0.7 + 0.5 * Math.sin(p.seed * 2.3) * Math.sin(p.seed * 2.3)));
+          A.fillStyle = css(lerpC(GLOSS, CREAM, p.band * 0.7));
+          dot(A, p.sx - p.sr * 0.38, p.sy - p.sr * 0.48, p.sr * 0.36);
+        });
+        s.forEach(function (p) {
+          A.fillStyle = css(lerpC(CORE, CREAM, p.band * 0.5));
+          dot(A, p.sx - p.sr * 0.44, p.sy - p.sr * 0.56, p.sr * 0.17);
+        });
+        // light bouncing back up into the lower edge
+        s.forEach(function (p) {
+          A.fillStyle = css(RIM);
+          dot(A, p.sx + p.sr * 0.5, p.sy + p.sr * 0.55, p.sr * 0.22);
         });
       });
     });
