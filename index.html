@@ -352,14 +352,6 @@
     G.fillStyle = css(DARK);
   }
 
-  function spec(x, y, r) {
-    G.save();
-    G.translate(x - r * 0.3, y - r * 0.38); G.rotate(-0.5);
-    G.fillStyle = "rgba(255,240,220,.42)";
-    G.beginPath(); G.ellipse(0, 0, r * 0.16, r * 0.3, 0, 0, PI * 2); G.fill();
-    G.restore();
-  }
-
   function render(t) {
     A.setTransform(dpr, 0, 0, dpr, 0, 0); A.clearRect(0, 0, W, H);
     G.setTransform(dpr, 0, 0, dpr, 0, 0); G.clearRect(0, 0, W, H);
@@ -445,17 +437,11 @@
           A.fillStyle = css(lerpC(GLOSS, CREAM, p.band * 0.7 + 0.0));
           dot(A, p.sx - p.sr * 0.4, p.sy - p.sr * 0.5, p.sr * 0.26 * (0.7 + 0.5 * Math.sin(p.seed * 2.3) * Math.sin(p.seed * 2.3)));
         });
-        // a few crisp glints, like light on wet chocolate
-        for (var i = 4; i < s.length; i += 13) {
-          var g = s[i];
-          spec(g.sx - g.sr * 0.15, g.sy - g.sr * 0.2, g.sr * 0.6);
-        }
       });
     });
     for (var m = 0; m < beads.length; m += 3) {
       A.fillStyle = css(HI);
       dot(A, beads[m] - beads[m + 2] * 0.22, beads[m + 1] - beads[m + 2] * 0.28, beads[m + 2] * 0.5);
-      spec(beads[m], beads[m + 1], beads[m + 2]);
     }
 
     // puddles
