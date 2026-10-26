@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Temper — Handmade chocolate</title>
+<meta name="description" content="Handmade chocolate. Please don’t hold it too long.">
+<style>
+  :root{--ivory:#f4efe4;--ink:#2a170d;--muted:#85705c}
+  *{box-sizing:border-box}
+  html{background:var(--ivory);color:var(--ink)}
+  body{margin:0;background:var(--ivory);font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+
+  .hero{position:relative;height:100vh;height:100svh;overflow:hidden;display:grid;place-content:center;text-align:center}
+
+  /* The word stays in the page for search engines and screen readers. It is shown
+     as plain type only until the canvas has drawn its first frame. */
+  h1{margin:0;font:900 14vw/1 "Arial Black",Arial,sans-serif;letter-spacing:-.02em;color:#3a2012}
+  html.live h1{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+  .tagline{margin:1rem 0 0;font-size:clamp(.95rem,1.6vw,1.2rem);font-style:italic;letter-spacing:.02em;color:var(--muted)}
+  html.live .tagline{position:absolute;left:0;right:0;margin:0;padding:0 1.25rem;z-index:0;opacity:0;animation:rise 1.4s .5s ease forwards}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none}
+  html.live canvas{display:block}
+  /* pool: puddles on the floor. ink: letters, drips, falling drops. gloss: crisp threads and highlights. */
+  #pool{z-index:1;filter:url(#goo)}
+  #ink{z-index:2;filter:url(#goo) drop-shadow(0 .7vmin 1.4vmin rgba(58,28,10,.28))}
+  #gloss{z-index:3}
+
+  svg.defs{position:absolute;width:0;height:0}
+
+  .next{min-height:70vh;display:grid;place-content:center;text-align:center;padding:4rem 1.25rem;color:var(--muted);font-style:italic;font-size:1.15rem}
+  @media (prefers-reduced-motion:reduce){html.live .tagline{animation:none;opacity:1}}
+</style>
+</head>
+<body>
+<main>
+  <section class="hero" id="hero">
+    <h1>Temper</h1>
+    <p class="tagline">Handmade chocolate. Please don’t hold it too long.</p>
+    <canvas id="pool" aria-hidden="true"></canvas>
+    <canvas id="ink" aria-hidden="true"></canvas>
+    <canvas id="gloss" aria-hidden="true"></canvas>
+  </section>
+  <section class="next" id="next">
+    <p>The rest of the shop is still setting.</p>
+  </section>
+</main>
+
+<!-- Blur, then a hard alpha threshold: overlapping circles fuse into one smooth,
+     liquid blob. The blur radius is set from script. -->
+<svg class="defs" aria-hidden="true">
+  <filter id="goo" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%">
+    <feGaussianBlur id="blur" stdDeviation="5"/>
+    <feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9.5"/>
+  </filter>
+</svg>
+
+<script>
+(function () {
+  "use strict";
+
+  // ===== SETTINGS =====
+  var WORD = "TEMPER";
+  var PEN = 0.15;              // stroke radius, in letter heights
+  var TRACK = 0.3;             // gap between letters
+  var LINE_GAP = 0.55;         // gap between lines when the word wraps (narrow screens)
+
+  var HOLD = 1.0;              // seconds the cursor must rest on a letter before it melts
+  var STILL = 70;              // px/s: slower than this counts as resting
+  var WARM_IN = 0.35;          // seconds for a letter to go soft under the cursor
+  var WARM_OUT = 1.8;          // seconds to cool down again
+  var MELT_IN = 2.6;           // seconds from first sag to fully melted
+  var MELT_OUT = 3.6;          // seconds for a melted letter to pull itself back
+  var SAG = 0.3;               // how far the bottom of a letter slumps, in letter heights
+  var SPREAD = 0.1;            // how much the bottom widens as it sags
+  var GRAVITY = 1.6;           // screen heights per second squared
+  var PUDDLE_STAY = 8;         // seconds a puddle stays before fading
+  var PUDDLE_FADE = 4;         // seconds it takes to fade
+  var SHINE_TIME = 1.1;        // seconds for the "set" shine to cross a letter
+  var CUE_HANG = 3;            // seconds the scroll-cue drop takes to form
+  var CUE_REST = 1.6;          // seconds of rest between cue drops
+  // ===== END SETTINGS =====
+
+  var hero = document.getElementById("hero");
+  var cPool = document.getElementById("pool"), cInk = document.getElementById("ink"), cGloss = document.getElementById("gloss");
+  var P = cPool.getContext("2d"), A = cInk.getContext("2d"), G = cGloss.getContext("2d");
+  var blurNode = document.getElementById("blur");
+  if (!A) return;
+
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var PI = Math.PI;
+
+  /* ---- colour ------------------------------------------------------------ */
+
+  var BG = [244, 239, 228], DARK = [52, 28, 16], WARMC = [86, 46, 26], HI = [118, 68, 42], CREAM = [255, 238, 214];
+  function lerpC(a, b, k) {
+    k = k < 0 ? 0 : k > 1 ? 1 : k;
+    return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+  }
+  function css(c) { return "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")"; }
+  function sstep(a, b, x) { x = (x - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+  function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
+
+  /* ---- letters: skeletons drawn with a round pen, in a box 1 high --------- */
+
+  function arc(cx, cy, rx, ry, a0, a1, n) {
+    var pts = [];
+    for (var i = 0; i <= n; i++) {
+      var a = a0 + (a1 - a0) * (i / n);
+      pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]);
+    }
+    return pts;
+  }
+  function cat() { return Array.prototype.concat.apply([], arguments); }
+
+  /* Each letter is { w: width in letter heights, s: [strokes] }; a stroke is a polyline
+     of [x, y] points, y pointing down (0 = top, 1 = baseline). */
+  var LETTERS = {
+    T: { w: 0.8, s: [[[0, 0], [0.8, 0]], [[0.4, 0], [0.4, 1]]] },
+    E: { w: 0.7, s: [[[0, 0], [0, 1]], [[0, 0], [0.7, 0]], [[0, 0.5], [0.55, 0.5]], [[0, 1], [0.7, 1]]] },
+    M: { w: 1.05, s: [[[0, 1], [0, 0.12], [0.52, 0.72], [1.05, 0.12], [1.05, 1]]] },
+    P: { w: 0.82, s: [[[0, 1], [0, 0]], cat([[0, 0.02]], arc(0.4, 0.28, 0.42, 0.26, -PI / 2, PI / 2, 8), [[0, 0.54]])] },
+    R: { w: 0.82, s: [[[0, 1], [0, 0]],
+         cat([[0, 0.02]], arc(0.4, 0.28, 0.42, 0.26, -PI / 2, PI / 2, 8), [[0, 0.54]]),
+         [[0.38, 0.55], [0.82, 1]]] }
+  };
+
+  /* ---- state ------------------------------------------------------------- */
+
+  var letters = [], drops = [], puddles = [], beads = [];
+  var W = 0, H = 0, dpr = 1, unit = 1, r0 = 1, floorY = 0, tagTop = 0;
+  var pointer = { x: -1e4, y: -1e4, inside: false, moved: 0, speed: 0 };
+  var cue = { state: "wait", t: 0, delay: 1.4, x: 0, y: 0, r: 6 };
+  var visible = true, last = 0;
+
+  function lineWidth(line) {
+    var w = 0;
+    line.forEach(function (c, i) { w += LETTERS[c].w + 2 * PEN + (i ? TRACK : 0); });
+    return w;
+  }
+
+  function resample(poly, spacing) {
+    var out = [[poly[0][0], poly[0][1]]], carry = 0;
+    for (var i = 1; i < poly.length; i++) {
+      var ax = poly[i - 1][0], ay = poly[i - 1][1], bx = poly[i][0], by = poly[i][1];
+      var len = Math.hypot(bx - ax, by - ay), d = spacing - carry;
+      while (d <= len) {
+        var t = d / len;
+        out.push([ax + (bx - ax) * t, ay + (by - ay) * t]);
+        d += spacing;
+      }
+      carry = len - (d - spacing);
+    }
+    var lp = poly[poly.length - 1], tail = out[out.length - 1];
+    if (Math.hypot(lp[0] - tail[0], lp[1] - tail[1]) > spacing * 0.25) out.push([lp[0], lp[1]]);
+    return out;
+  }
+
+  function layout() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var rect = hero.getBoundingClientRect();
+    W = rect.width; H = rect.height;
+    [cPool, cInk, cGloss].forEach(function (c) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); });
+
+    // one line when there is room, two when the screen is narrow
+    var narrow = W < 640, chars = WORD.split("");
+    var lines = narrow ? [chars.slice(0, 3), chars.slice(3)] : [chars];
+    var widest = Math.max.apply(null, lines.map(lineWidth));
+    var rows = lines.length + (lines.length - 1) * LINE_GAP + 2 * PEN;
+    unit = Math.min(W * (narrow ? 0.84 : 0.8) / widest, H * 0.46 / rows);
+    r0 = unit * PEN;
+
+    var lineH = unit * (1 + 2 * PEN), gap = Math.max(26, unit * 0.42), tagH = 28;
+    var blockH = lines.length * lineH + (lines.length - 1) * unit * LINE_GAP;
+    var y0 = (H - (blockH + gap + tagH)) / 2 * 0.94;
+    tagTop = y0 + blockH + gap;
+    hero.querySelector(".tagline").style.top = tagTop + "px";
+    floorY = H - 18;
+    blurNode.setAttribute("stdDeviation", (r0 * 0.3).toFixed(2));
+
+    letters = []; drops = []; puddles = [];
+    lines.forEach(function (line, li) {
+      var x = (W - lineWidth(line) * unit) / 2;
+      var top = y0 + li * (lineH + unit * LINE_GAP) + r0;
+      line.forEach(function (ch) {
+        var g = LETTERS[ch], ox = x + r0, wpx = (g.w + 2 * PEN) * unit, pad = unit * 0.08;
+        var L = {
+          ch: ch, x0: x, wpx: wpx, top: top, cx: x + wpx / 2, strokes: [], anchors: [],
+          box: { l: x - pad, r: x + wpx + pad, t: top - r0 - pad, b: top + unit + r0 + pad },
+          warm: 0, hold: 0, melt: 0, me: 0, melting: false, flag: false, shine: -1
+        };
+        g.s.forEach(function (poly) {
+          var placed = poly.map(function (p) { return [ox + p[0] * unit, top + p[1] * unit]; });
+          L.strokes.push(resample(placed, r0 * 0.5).map(function (p) {
+            var seed = p[0] * 0.037 + p[1] * 0.031;
+            return { x: p[0], y: p[1], v: clamp((p[1] - top) / unit, 0, 1), seed: seed,
+                     k: 1 + 0.05 * Math.sin(seed * 1.7), sx: 0, sy: 0, sr: 0, band: 0 };
+          }));
+        });
+        // drip points: the lowest parts of the letter, spread apart
+        var low = [];
+        L.strokes.forEach(function (s) { s.forEach(function (p) { if (p.v > 0.85) low.push(p); }); });
+        low.sort(function (a, b) { return a.x - b.x; });
+        var lastX = -1e9;
+        low.forEach(function (p) {
+          if (p.x - lastX > unit * 0.38 && L.anchors.length < 3) {
+            lastX = p.x;
+            L.anchors.push({ p: p, state: 0, len: 0, cool: Math.random() * 0.7, breakLen: 0 });
+          }
+        });
+        letters.push(L);
+        x += wpx + TRACK * unit;
+      });
+    });
+
+    cue.r = clamp(unit * 0.05, 4.5, 8);
+    cue.x = W / 2;
+    cue.y = H - clamp(H * 0.16, 90, 150);
+    cue.state = "wait"; cue.t = 0; cue.delay = 1.4;
+  }
+
+  /* ---- where a point of ink is right now, given its letter's heat and melt */
+
+  var px = 0, py = 0, pr = 0;
+  function place(L, p, t) {
+    var me = L.me, v = p.v, wob = L.warm * unit * 0.007;
+    px = p.x + (p.x - L.cx) * SPREAD * me * v + Math.sin(t * 2.3 + p.seed * 3.1) * wob;
+    py = p.y + me * unit * (0.04 + SAG * v * v) + Math.cos(t * 1.9 + p.seed * 2.7) * wob
+         + me * unit * 0.025 * v * Math.sin(t * 1.4 + p.seed * 5);
+    pr = r0 * p.k * (1 + L.warm * 0.035 + me * (0.3 * v - 0.12 * (1 - v)));
+  }
+
+  /* ---- simulation -------------------------------------------------------- */
+
+  function updateLetter(L, dt) {
+    var b = L.box;
+    var hover = pointer.inside && pointer.x > b.l && pointer.x < b.r && pointer.y > b.t && pointer.y < b.b;
+    if (hover) {
+      L.warm = Math.min(1, L.warm + dt / WARM_IN);
+      L.hold = pointer.speed < STILL ? L.hold + dt : Math.max(0, L.hold - dt * 1.5);
+      if (L.hold >= HOLD) L.melting = true;
+    } else {
+      L.warm = Math.max(0, L.warm - dt / WARM_OUT);
+      L.hold = Math.max(0, L.hold - dt * 2);
+      L.melting = false;
+    }
+    if (L.warm > 0.6 || L.melt > 0.05) L.flag = true;
+    L.melt = L.melting ? Math.min(1, L.melt + dt / MELT_IN) : Math.max(0, L.melt - dt / MELT_OUT);
+    L.me = L.melt * L.melt * (3 - 2 * L.melt);
+
+    // once it has cooled and pulled back, it sets with a shine
+    if (L.flag && !hover && L.warm < 0.05 && L.melt < 0.02) { L.flag = false; L.shine = 0; }
+    if (L.shine >= 0) { L.shine += dt / SHINE_TIME; if (L.shine > 1) L.shine = -1; }
+
+    L.anchors.forEach(function (a) {
+      if (a.state === 0) {
+        a.cool -= dt;
+        if (L.melt > 0.28 && a.cool <= 0) { a.state = 1; a.len = 0; a.breakLen = unit * (0.5 + Math.random() * 0.3); }
+      } else if (a.state === 1) {
+        if (L.melt > 0.15) a.len += ((0.05 + 0.5 * L.me) * unit + a.len * 2.2) * dt;
+        else a.len -= unit * 0.5 * dt;
+        if (a.len <= 0) { a.state = 0; a.len = 0; a.cool = 0.4 + Math.random() * 0.8; }
+        else if (a.len >= a.breakLen) {
+          place(L, a.p, 0);
+          var prog = 1;
+          drops.push({ x: px, y: py + a.len, vy: unit * 0.25, r: r0 * (0.5 + 0.4 * prog) * (0.85 + 0.25 * L.me),
+                       tail: a.len * 0.6, pass: false });
+          a.state = 2;
+        }
+      } else {
+        a.len -= unit * 3 * dt;                 // the stub snaps back
+        if (a.len <= 0) { a.state = 0; a.len = 0; a.cool = (1 + Math.random() * 1.2) / (0.4 + L.me); }
+      }
+    });
+  }
+
+  function land(d) {
+    var best = null;
+    puddles.forEach(function (q) { if (Math.abs(q.x - d.x) < q.w + d.r * 1.5 && (!best || Math.abs(q.x - d.x) < Math.abs(best.x - d.x))) best = q; });
+    var add = d.r * 2.3;
+    if (best) {
+      best.x += (d.x - best.x) * 0.25;
+      best.target = Math.min(unit * 1.3, Math.sqrt(best.target * best.target + add * add));
+      best.age = Math.min(best.age, 1);
+    } else {
+      puddles.push({ x: d.x, w: d.r * 0.6, target: add, age: 0 });
+      if (puddles.length > 14) puddles.shift();
+    }
+  }
+
+  function updateCue(dt) {
+    cue.t += dt;
+    if (cue.state === "wait") {
+      if (cue.t >= cue.delay) { cue.state = "hang"; cue.t = 0; }
+    } else if (cue.t >= CUE_HANG) {
+      var len = cueLen(CUE_HANG);
+      drops.push({ x: cue.x, y: cue.y + len, vy: cue.r * 4, r: cueBead(1), tail: len * 0.6, pass: true });
+      cue.state = "wait"; cue.t = 0; cue.delay = CUE_REST;
+    }
+  }
+  function cueLen(t) { return cue.r * 1.2 + cue.r * 9 * Math.pow(clamp(t / CUE_HANG, 0, 1), 2.2); }
+  function cueBead(q) { return cue.r * (0.55 + 0.65 * sstep(0, 1, q)); }
+
+  function update(dt) {
+    pointer.speed += (pointer.moved / dt - pointer.speed) * 0.25;
+    pointer.moved = 0;
+    letters.forEach(function (L) { updateLetter(L, dt); });
+    updateCue(dt);
+
+    var g = GRAVITY * H;
+    for (var i = drops.length - 1; i >= 0; i--) {
+      var d = drops[i];
+      d.vy += g * dt; d.y += d.vy * dt;
+      d.tail = Math.max(0, d.tail - unit * 1.2 * dt);
+      if (!d.pass && d.y + d.r >= floorY) { land(d); drops.splice(i, 1); }
+      else if (d.y - d.r > H + 80) drops.splice(i, 1);
+    }
+    for (i = puddles.length - 1; i >= 0; i--) {
+      var q = puddles[i];
+      q.age += dt;
+      q.w += (q.target - q.w) * Math.min(1, dt * 4);
+      if (q.age > PUDDLE_STAY + PUDDLE_FADE) puddles.splice(i, 1);
+    }
+  }
+
+  /* ---- drawing ----------------------------------------------------------- */
+
+  function dot(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, Math.max(0.1, r), 0, PI * 2); ctx.fill(); }
+
+  // a vertical thread that tapers: widths are given at the top, middle and bottom
+  function thread(x, y1, y2, wTop, wMid, wBot, sway) {
+    if (y2 - y1 < 4) return;
+    var n = 6, i, t, w, left = [], right = [];
+    for (i = 0; i <= n; i++) {
+      t = i / n;
+      w = wTop + (wMid - wTop) * sstep(0, 0.55, t) + (wBot - wMid) * sstep(0.8, 1, t);
+      var xx = x + Math.sin(t * PI) * sway, yy = y1 + (y2 - y1) * t;
+      left.push([xx - w / 2, yy]); right.push([xx + w / 2, yy]);
+    }
+    G.beginPath();
+    left.forEach(function (p, k) { k ? G.lineTo(p[0], p[1]) : G.moveTo(p[0], p[1]); });
+    right.reverse().forEach(function (p) { G.lineTo(p[0], p[1]); });
+    G.closePath(); G.fill();
+    // a thin highlight down the thread
+    G.fillStyle = "rgba(255,236,210,.35)";
+    G.fillRect(x - wMid * 0.25 - 0.5, y1, Math.max(0.8, wMid * 0.22), y2 - y1);
+    G.fillStyle = css(DARK);
+  }
+
+  function spec(x, y, r) {
+    G.save();
+    G.translate(x - r * 0.3, y - r * 0.38); G.rotate(-0.5);
+    G.fillStyle = "rgba(255,240,220,.6)";
+    G.beginPath(); G.ellipse(0, 0, r * 0.16, r * 0.3, 0, 0, PI * 2); G.fill();
+    G.restore();
+  }
+
+  function render(t) {
+    A.setTransform(dpr, 0, 0, dpr, 0, 0); A.clearRect(0, 0, W, H);
+    G.setTransform(dpr, 0, 0, dpr, 0, 0); G.clearRect(0, 0, W, H);
+    G.lineCap = "round";
+    beads.length = 0;
+
+    // letters: body
+    letters.forEach(function (L) {
+      var base = lerpC(DARK, WARMC, L.warm * 0.5), baseCss = css(base);
+      var hi = lerpC(HI, CREAM, L.warm * 0.12), hiCss = css(hi);
+      L.baseCss = baseCss; L.hiCss = hiCss; L.baseC = base; L.hiC = hi;
+      var shineT = L.shine >= 0 ? -0.3 + 1.8 * L.shine : 0;
+      L.strokes.forEach(function (s) {
+        s.forEach(function (p) {
+          place(L, p, t);
+          p.sx = px; p.sy = py; p.sr = pr;
+          p.band = 0;
+          if (L.shine >= 0) {
+            var u = ((p.x - L.x0) / L.wpx) * 0.75 + (1 - p.v) * 0.45, d = u - shineT;
+            p.band = Math.exp(-d * d / 0.02);
+          }
+          A.fillStyle = p.band > 0.02 ? css(lerpC(base, CREAM, p.band * 0.45)) : baseCss;
+          dot(A, px, py, pr);
+        });
+      });
+
+      // drips hanging from the letter
+      A.fillStyle = baseCss;
+      L.anchors.forEach(function (a) {
+        if (a.state === 0) return;
+        place(L, a.p, t);
+        var ax = px, ay = py, len = a.len, prog = Math.min(1, len / (a.breakLen || 1));
+        var rTop = pr * 0.95, neck = r0 * (0.62 - 0.45 * sstep(0.2, 1, prog));
+        var rb = r0 * (0.5 + 0.4 * prog) * (0.85 + 0.25 * L.me);
+        var steps = Math.max(1, Math.ceil(len / (r0 * 0.35)));
+        for (var i = 0; i <= steps; i++) {
+          var f = i / steps;
+          dot(A, ax, ay + len * f, neck + (rTop - neck) * (1 - sstep(0, 0.6, f)));
+        }
+        dot(A, ax, ay + len, rb);
+        dot(A, ax, ay + len - rb * 0.9, rb * 0.75);
+        beads.push(ax, ay + len, rb);
+        // the thin part of the strand is too fine for the blur filter: draw it crisp
+        G.fillStyle = css(DARK);
+        var wMid = Math.max(1.6, 2 * neck * 0.6);
+        thread(ax, ay + pr * 0.9 + len * 0.2, ay + len - rb * 0.4, Math.max(2, 2 * neck), wMid, wMid * 1.4, Math.sin(t * 2 + ax) * 0.6 * prog);
+      });
+    });
+
+    // scroll cue: a little lip with one drop forming on it
+    A.fillStyle = css(DARK);
+    for (var k = -2; k <= 2; k++) dot(A, cue.x + k * cue.r * 1.1, cue.y, cue.r * 0.8);
+    if (cue.state === "hang") {
+      var q = cue.t / CUE_HANG, len = cueLen(cue.t), rb = cueBead(q);
+      var neckC = cue.r * (0.7 - 0.5 * sstep(0.3, 1, q));
+      var steps = Math.max(1, Math.ceil(len / (cue.r * 0.5)));
+      for (var j = 0; j <= steps; j++) dot(A, cue.x, cue.y + len * (j / steps), neckC + (cue.r * 0.6 - neckC) * (1 - sstep(0, 0.25, j / steps)));
+      dot(A, cue.x, cue.y + len, rb);
+      dot(A, cue.x, cue.y + len - rb * 0.9, rb * 0.75);
+      beads.push(cue.x, cue.y + len, rb);
+      G.fillStyle = css(DARK);
+      var wm = Math.max(1.4, 2 * neckC * 0.6);
+      thread(cue.x, cue.y + len * 0.28, cue.y + len - rb * 0.4, Math.max(2, 2 * neckC), wm, wm * 1.4, 0);
+    }
+
+    // falling drops, each trailing a hair-thin thread
+    drops.forEach(function (d) {
+      A.fillStyle = css(DARK);
+      dot(A, d.x, d.y, d.r);
+      dot(A, d.x, d.y - d.r * 0.9, d.r * 0.75);
+      beads.push(d.x, d.y, d.r);
+      if (d.tail > 2) {
+        G.fillStyle = css(DARK);
+        thread(d.x, d.y - d.r * 0.9 - d.tail, d.y - d.r * 0.9, 1, 1.8, 3.2, 0);
+      }
+    });
+
+    // letters: gloss
+    letters.forEach(function (L) {
+      L.strokes.forEach(function (s) {
+        s.forEach(function (p) {
+          A.fillStyle = p.band > 0.02 ? css(lerpC(L.hiC, CREAM, p.band * 0.7)) : L.hiCss;
+          dot(A, p.sx - p.sr * 0.22, p.sy - p.sr * 0.28, p.sr * 0.55);
+        });
+        // crisp highlight along the upper-left edge of the stroke; wetter when melted
+        G.lineWidth = Math.max(1.5, r0 * 0.13);
+        G.strokeStyle = "rgba(255,238,214," + (0.24 + 0.3 * L.me).toFixed(2) + ")";
+        G.beginPath();
+        for (var i = 0; i < s.length; i++) {
+          var b = s[i], hx = b.sx - b.sr * 0.42, hy = b.sy - b.sr * 0.52;
+          if (i && Math.hypot(b.sx - s[i - 1].sx, b.sy - s[i - 1].sy) < r0 * 1.4) G.lineTo(hx, hy); else G.moveTo(hx, hy);
+        }
+        G.stroke();
+        // the shine that crosses a letter as it sets
+        if (L.shine >= 0) {
+          G.lineWidth = Math.max(2.5, r0 * 0.3);
+          for (i = 1; i < s.length; i++) {
+            var a = s[i - 1], bb = s[i], band = Math.max(a.band, bb.band);
+            if (band < 0.05 || Math.hypot(bb.sx - a.sx, bb.sy - a.sy) > r0 * 1.4) continue;
+            G.strokeStyle = "rgba(255,244,226," + Math.min(0.9, band * 0.9).toFixed(2) + ")";
+            G.beginPath();
+            G.moveTo(a.sx - a.sr * 0.3, a.sy - a.sr * 0.4);
+            G.lineTo(bb.sx - bb.sr * 0.3, bb.sy - bb.sr * 0.4);
+            G.stroke();
+          }
+        }
+      });
+    });
+    for (var m = 0; m < beads.length; m += 3) {
+      A.fillStyle = css(HI);
+      dot(A, beads[m] - beads[m + 2] * 0.22, beads[m + 1] - beads[m + 2] * 0.28, beads[m + 2] * 0.5);
+      spec(beads[m], beads[m + 1], beads[m + 2]);
+    }
+
+    // puddles
+    P.setTransform(dpr, 0, 0, dpr, 0, 0); P.clearRect(0, 0, W, H);
+    puddles.forEach(function (q) {
+      var fade = clamp((q.age - PUDDLE_STAY) / PUDDLE_FADE, 0, 1);
+      var h = Math.max(r0 * 0.5, q.w * 0.14), w = q.w * (1 - 0.12 * fade);
+      P.fillStyle = css(lerpC(DARK, BG, fade));
+      P.beginPath(); P.ellipse(q.x, floorY - h, w, h, 0, 0, PI * 2); P.fill();
+      P.fillStyle = css(lerpC(HI, BG, fade));
+      P.beginPath(); P.ellipse(q.x - w * 0.2, floorY - h * 1.25, w * 0.45, h * 0.35, 0, 0, PI * 2); P.fill();
+    });
+  }
+
+  /* ---- loop and input ---------------------------------------------------- */
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    var dt = Math.min(0.05, (now - last) / 1000 || 0.016);
+    last = now;
+    if (!visible) return;
+    if (!reduced) update(dt);
+    render(now / 1000);
+  }
+
+  function setPointer(e) {
+    var r = hero.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    if (pointer.inside) pointer.moved += Math.hypot(x - pointer.x, y - pointer.y);
+    pointer.x = x; pointer.y = y;
+    pointer.inside = x >= 0 && y >= 0 && x <= r.width && y <= r.height;
+  }
+  window.addEventListener("pointermove", setPointer);
+  window.addEventListener("pointerdown", function (e) { pointer.inside = false; setPointer(e); });
+  window.addEventListener("pointerup", function (e) { if (e.pointerType === "touch") pointer.inside = false; });
+  window.addEventListener("pointercancel", function () { pointer.inside = false; });
+  document.documentElement.addEventListener("mouseleave", function () { pointer.inside = false; });
+  window.addEventListener("scroll", function () { pointer.inside = false; }, { passive: true });
+  window.addEventListener("resize", layout);
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(function (en) { visible = en[0].isIntersecting; }).observe(hero);
+  }
+
+  // test hook: window.temper.letters / .drops / .puddles for inspection
+  window.temper = { get letters() { return letters; }, get drops() { return drops; }, get puddles() { return puddles; } };
+
+  layout();
+  document.documentElement.classList.add("live");
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
