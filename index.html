@@ -442,28 +442,6 @@
           A.fillStyle = p.band > 0.02 ? css(lerpC(L.hiC, CREAM, p.band * 0.7)) : L.hiCss;
           dot(A, p.sx - p.sr * 0.22, p.sy - p.sr * 0.28, p.sr * 0.55);
         });
-        // crisp highlight along the upper-left edge of the stroke; wetter when melted
-        G.lineWidth = Math.max(1.5, r0 * 0.13);
-        G.strokeStyle = "rgba(255,238,214," + (0.24 + 0.3 * L.me).toFixed(2) + ")";
-        G.beginPath();
-        for (var i = 0; i < s.length; i++) {
-          var b = s[i], hx = b.sx - b.sr * 0.42, hy = b.sy - b.sr * 0.52;
-          if (i && Math.hypot(b.sx - s[i - 1].sx, b.sy - s[i - 1].sy) < r0 * 1.4) G.lineTo(hx, hy); else G.moveTo(hx, hy);
-        }
-        G.stroke();
-        // the shine that crosses a letter as it sets
-        if (L.shine >= 0) {
-          G.lineWidth = Math.max(2.5, r0 * 0.3);
-          for (i = 1; i < s.length; i++) {
-            var a = s[i - 1], bb = s[i], band = Math.max(a.band, bb.band);
-            if (band < 0.05 || Math.hypot(bb.sx - a.sx, bb.sy - a.sy) > r0 * 1.4) continue;
-            G.strokeStyle = "rgba(255,244,226," + Math.min(0.9, band * 0.9).toFixed(2) + ")";
-            G.beginPath();
-            G.moveTo(a.sx - a.sr * 0.3, a.sy - a.sr * 0.4);
-            G.lineTo(bb.sx - bb.sr * 0.3, bb.sy - bb.sr * 0.4);
-            G.stroke();
-          }
-        }
       });
     });
     for (var m = 0; m < beads.length; m += 3) {
