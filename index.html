@@ -95,7 +95,7 @@
 
   /* ---- colour ------------------------------------------------------------ */
 
-  var BG = [244, 239, 228], DARK = [52, 28, 16], WARMC = [86, 46, 26], HI = [118, 68, 42], CREAM = [255, 238, 214];
+  var BG = [244, 239, 228], DARK = [40, 20, 11], WARMC = [76, 40, 22], HI = [112, 63, 38], GLOSS = [168, 112, 80], CREAM = [255, 238, 214];
   function lerpC(a, b, k) {
     k = k < 0 ? 0 : k > 1 ? 1 : k;
     return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
@@ -196,9 +196,12 @@
           var placed = poly.map(function (p) { return [ox + p[0] * unit, top + p[1] * unit]; });
           L.strokes.push(resample(placed, r0 * 0.5).map(function (p) {
             var seed = p[0] * 0.037 + p[1] * 0.031;
-            return { x: p[0], y: p[1], v: clamp((p[1] - top) / unit, 0, 1), seed: seed,
-                     k: 1 + 0.05 * Math.sin(seed * 1.7), sx: 0, sy: 0, sr: 0, band: 0 };
+            var wx = unit * 0.014 * Math.sin(seed * 4.1 + 1), wy = unit * 0.014 * Math.sin(seed * 3.3);
+            return { x: p[0] + wx, y: p[1] + wy, v: clamp((p[1] - top) / unit, 0, 1), seed: seed,
+                     k: 1 + 0.1 * Math.sin(seed * 1.3) + 0.06 * Math.sin(seed * 3.1 + 2), sx: 0, sy: 0, sr: 0, band: 0 };
           }));
+          var sp = L.strokes[L.strokes.length - 1];
+          sp[0].k *= 1.08; sp[sp.length - 1].k *= 1.08;
         });
         // drip points: the lowest parts of the letter, spread apart
         var low = [];
@@ -208,7 +211,9 @@
         low.forEach(function (p) {
           if (p.x - lastX > unit * 0.38 && L.anchors.length < 3) {
             lastX = p.x;
-            L.anchors.push({ p: p, state: 0, len: 0, cool: Math.random() * 0.7, breakLen: 0 });
+            var n = L.anchors.length;
+            L.anchors.push({ p: p, state: 0, len: 0, cool: Math.random() * 0.7, breakLen: 0,
+                             rest: (n % 2 === 0 || Math.random() < 0.4) ? unit * (0.08 + Math.random() * 0.2) : 0 });
           }
         });
         letters.push(L);
@@ -258,11 +263,11 @@
     L.anchors.forEach(function (a) {
       if (a.state === 0) {
         a.cool -= dt;
-        if (L.melt > 0.28 && a.cool <= 0) { a.state = 1; a.len = 0; a.breakLen = unit * (0.5 + Math.random() * 0.3); }
+        if (L.melt > 0.28 && a.cool <= 0) { a.state = 1; a.len = a.rest; a.breakLen = unit * (0.5 + Math.random() * 0.3); }
       } else if (a.state === 1) {
         if (L.melt > 0.15) a.len += ((0.05 + 0.5 * L.me) * unit + a.len * 2.2) * dt;
         else a.len -= unit * 0.5 * dt;
-        if (a.len <= 0) { a.state = 0; a.len = 0; a.cool = 0.4 + Math.random() * 0.8; }
+        if (a.len <= a.rest) { a.state = 0; a.len = a.rest; a.cool = 0.4 + Math.random() * 0.8; }
         else if (a.len >= a.breakLen) {
           place(L, a.p, 0);
           var prog = 1;
@@ -272,7 +277,7 @@
         }
       } else {
         a.len -= unit * 3 * dt;                 // the stub snaps back
-        if (a.len <= 0) { a.state = 0; a.len = 0; a.cool = (1 + Math.random() * 1.2) / (0.4 + L.me); }
+        if (a.len <= a.rest) { a.state = 0; a.len = a.rest; a.cool = (1 + Math.random() * 1.2) / (0.4 + L.me); }
       }
     });
   }
@@ -350,7 +355,7 @@
   function spec(x, y, r) {
     G.save();
     G.translate(x - r * 0.3, y - r * 0.38); G.rotate(-0.5);
-    G.fillStyle = "rgba(255,240,220,.6)";
+    G.fillStyle = "rgba(255,240,220,.42)";
     G.beginPath(); G.ellipse(0, 0, r * 0.16, r * 0.3, 0, 0, PI * 2); G.fill();
     G.restore();
   }
@@ -384,9 +389,10 @@
       // drips hanging from the letter
       A.fillStyle = baseCss;
       L.anchors.forEach(function (a) {
-        if (a.state === 0) return;
+        if (a.state === 0 && !a.rest) return;
         place(L, a.p, t);
-        var ax = px, ay = py, len = a.len, prog = Math.min(1, len / (a.breakLen || 1));
+        var ax = px, ay = py, len = a.state === 0 ? a.rest : a.len;
+        var prog = a.state === 0 ? 0.25 : Math.min(1, len / (a.breakLen || 1));
         var rTop = pr * 0.95, neck = r0 * (0.62 - 0.45 * sstep(0.2, 1, prog));
         var rb = r0 * (0.5 + 0.4 * prog) * (0.85 + 0.25 * L.me);
         var steps = Math.max(1, Math.ceil(len / (r0 * 0.35)));
@@ -437,8 +443,17 @@
       L.strokes.forEach(function (s) {
         s.forEach(function (p) {
           A.fillStyle = p.band > 0.02 ? css(lerpC(L.hiC, CREAM, p.band * 0.7)) : L.hiCss;
-          dot(A, p.sx - p.sr * 0.22, p.sy - p.sr * 0.28, p.sr * 0.55);
+          dot(A, p.sx - p.sr * 0.26, p.sy - p.sr * 0.34, p.sr * 0.58);
         });
+        s.forEach(function (p) {
+          A.fillStyle = css(lerpC(GLOSS, CREAM, p.band * 0.7 + 0.0));
+          dot(A, p.sx - p.sr * 0.4, p.sy - p.sr * 0.5, p.sr * 0.26 * (0.7 + 0.5 * Math.sin(p.seed * 2.3) * Math.sin(p.seed * 2.3)));
+        });
+        // a few crisp glints, like light on wet chocolate
+        for (var i = 4; i < s.length; i += 13) {
+          var g = s[i];
+          spec(g.sx - g.sr * 0.15, g.sy - g.sr * 0.2, g.sr * 0.6);
+        }
       });
     });
     for (var m = 0; m < beads.length; m += 3) {
