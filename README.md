@@ -13,6 +13,11 @@ Technique follows the `test-liquid` experiment: letters are round-pen skeletons 
 
 No build step. Open `index.html`, or serve the folder (for example VS Code Live Server).
 
+## Styles
+
+- `index.html` is the poured, glossy chocolate.
+- `index.html?style=bar` draws moulded chocolate-bar block letters: flat face, ridged bevel and a dark offset underside. Hover, hold-to-melt, drips, puddles and the set shine all still work; the liquid is drawn behind the slabs.
+
 ## Tweak
 
 Everything tunable is in the `SETTINGS` block at the top of the script: hold time, melt and recovery speed, sag, gravity, how long puddles stay, shine duration and the scroll-cue timing. Colours are in the `BG`, `DARK`, `WARMC`, `HI` and `CREAM` constants.
